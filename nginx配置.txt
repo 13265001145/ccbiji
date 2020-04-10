@@ -1,0 +1,124 @@
+################################################
+#  这里是全局块，可以配置一些全局生效的配置，比如nginx启动用户，nginx的worke_press
+################################################
+
+# 进程数，最大调至主机核数两倍(这个两倍暂时未理解,有的又说设置两倍没有益处)，
+# 一般调至主机核数,过多的worker 数，只会导致进程相互竞争 cpu，从而带来不必要的上下文切换。
+worker_processes  2;
+
+
+
+################################################
+#  event块，也是全局生效
+################################################
+events {
+    # 连接数，最大访问数等于 进程数*连接数/4 ，即worker_processes * worker_connections/4
+    # 这个 /4 网上争议挺多的，有的说不用除，有的说除2，但除4的的最多。具体等我复习下操作系统再研究研究
+    # 该参数最大可调至 worker_processes * worker_connections/4  <= 系统最大打开文件数
+    # 系统最大打开文件数可调，但是要看着cpu来调，别弄到100%什么爆了
+    # web服务器同时处理的请求数并不等于它同时服务的客户端数量。一个浏览器会打开多个并发连接来下载网页的各个部分，如图片、脚本等等。
+	worker_connections 1024;
+
+    # accept（争取客户端连接处理权）的互斥锁，默认on
+    # 这个配置主要预防惊群现象
+    # 惊群现象：
+    # 白话解析：一个公司10个程序员，一个程序员负责1个项目，老板接到一个项目后，把所有人叫到会议室开会，让他们发言争取项目开发权，但是本身就有的同事正在负责项目没空，有空的有好几个，但是项目只会给到一个人，却把所有人叫到会议室开会了，浪费时间，这就是惊群现象。
+    # 行话解析：主进程（master 进程）首先通过 socket() 来创建一个 sock 文件描述符用来监听，然后fork生成子进程（workers 进程），子进程将继承父进程的 sockfd（socket 文件描述符），之后子进程 accept() 后将创建已连接描述符（connected descriptor）），然后通过已连接描述符来与客户端通信。那么，由于所有子进程都继承了父进程的 sockfd，那么当连接进来时，所有子进程都将收到通知并“争着”与它建立连接，这就叫“惊群现象”。大量的进程被激活又挂起，只有一个进程可以accept() 到这个连接，这当然会消耗系统资源。
+    # Nginx对惊群现象的处理：Nginx 提供了一个 accept_mutex 这个东西，这是一个加在accept上的一把互斥锁。即每个 worker 进程在执行 accept 之前都需要先获取锁，获取不到就放弃执行 accept()。有了这把锁之后，同一时刻，就只会有一个进程去 accpet()，这样就不会有惊群问题了。accept_mutex 是一个可控选项，我们可以显示地关掉，默认是打开的。
+    # 处理解析2：并行通知改串行通知
+    # accept_mutex on;
+
+
+    # 设置是否允许同时接受多个网络连接，默认off
+    # 小项目的话还是关了好点，不然会造成上下文切换的浪费
+	multi_accept on;
+}
+
+
+################################################
+#  http块，nginx服务器配置中的重要部分，代理，缓存，日志定义等绝大部分功能以及第三方配置都可以放在这个模块中。
+################################################
+http {
+    include  mime.types;
+	default_type  application/octet-stream;
+	client_header_buffer_size 32k;
+	large_client_header_buffers 4 32k;
+	client_max_body_size 2048m;
+	server_names_hash_bucket_size 1024;
+	
+    # 设置为on表示启动高效传输文件的模式。sendfile可以让Nginx在传输文件时直接在磁盘和tcp socket之间传输数据。
+	# 如果这个参数不开启，会先在用户空间（Nginx进程空间）申请一个buffer，用read函数把数据从磁盘读到cache，再从cache读取到用户空间的buffer，再用write函数把数据从用户空间的buffer写入到内核的buffer，最后到tcp socket。开启这个参数后可以让数据不用经过用户buffer。
+    sendfile   on;
+	
+    
+    
+    # 接收到数据包后是否不立即发送
+    # 设置为on后，数据包凑够一定大小才发送。利端：减少网络开销（一个包最重要的是数据段，但是每个包都有包头，一样的包头发那么多次就浪费了）。弊端：数据即时性降低了，
+    # 利弊综合平衡，还是利大于弊，所以一般还是开
+    # 注意：tcp_nopush 必须和 sendfile 搭配使用
+    tcp_nopush on;
+
+
+    # 是否不延迟发送
+    # 设置为off，则延迟0.2秒发送，将该0.2秒内的数据包合并成一个包发送出去。
+    # 设置为on则立即发送
+    # 与 tcp_nopush 互斥（网上的都说互斥互斥，没说优先权的...）
+    tcp_nodelay on;
+
+    # 连接保持时长，设为0则不保持，变为短连接
+	keepalive_timeout 60;
+
+	
+
+	fastcgi_connect_timeout 3600;
+	fastcgi_send_timeout 3600;
+	fastcgi_read_timeout 3600;
+	fastcgi_buffer_size 64k;
+	fastcgi_buffers 4 64k;
+	fastcgi_busy_buffers_size 128k;
+	fastcgi_temp_file_write_size 256k;
+	fastcgi_intercept_errors on;
+	
+	gzip on;
+	gzip_min_length  1k;
+	gzip_buffers     4 16k;
+	gzip_http_version 1.1;
+	gzip_comp_level 2;
+	gzip_types     text/plain application/javascript application/x-javascript text/javascript text/css application/xml;
+	gzip_vary on;
+	gzip_proxied   expired no-cache no-store private auth;
+	gzip_disable   "MSIE [1-6]\.";
+	
+	server_tokens off;
+	access_log off;
+
+
+
+################################################
+#  server块和虚拟主机有密切关系，每一个http块可以包含多个server块，在server块中配置虚拟主机需要监听的端口，IP或域名
+################################################
+    server {
+        listen       80;
+        server_name  localhost;
+
+        #charset koi8-r;
+
+        #access_log  logs/host.access.log  main;
+
+3dh5项目开发
+写3dh5接口文档
+
+################################################
+#  每一个server块中可以包含多个location块，从严格意义上讲，location块只是server块的一个指令，它会接收到域名后面跟着的字符串，根据字符串来进行匹配，对特定请求进行处理，重定向，缓存，以及应答控制等功能
+################################################
+        location / {
+            root   html;
+            index  index.html index.htm;
+        }
+    }
+    include vhost/*.conf; 
+    #加载vhost目录下的虚拟主机配置文件
+}
+
+
+

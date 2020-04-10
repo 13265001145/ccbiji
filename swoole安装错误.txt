@@ -1,0 +1,25 @@
+问题1：
+php版本不够
+
+系统有多个php版本，需要把默认的切换至最新
+
+
+问题2：
+php切换版本，修改/etc/profile无效
+
+centos自带一个php，且使用级别比环境变量高，所以我就奇怪了，环境变量里都没有php的怎么能有这命令。
+https://www.cnblogs.com/dump/p/8659827.html
+
+
+问题3：
+error while loading shared libraries: libsodium.so.23
+
+/etc/profile 结尾加上：
+LD_LIBRARY_PATH=libsodium.so.23所在的目录
+https://blog.csdn.net/wallwind/article/details/7580659?depth_1-utm_source=distribute.pc_relevant.none-task-blog-BlogCommendFromMachineLearnPai2-3&utm_source=distribute.pc_relevant.none-task-blog-BlogCommendFromMachineLearnPai2-3
+
+
+问题4：
+Call to undefined function swoole_async_readfile()
+
+
